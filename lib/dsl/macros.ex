@@ -14,7 +14,7 @@ defmodule DSL.Macros do
       defcall providers(providers), to: MyScope.put_providers(providers)
   """
   defmacro defcall(head, opts) when is_list(opts) do
-    call = Keyword.fetch!(opts, :to)
+    call = opts |> Keyword.fetch!(:to) |> expand_aliases(__CALLER__)
     {name, args} = decompose_head!(head)
     bindings = binding_keyword(args)
 
@@ -36,8 +36,8 @@ defmodule DSL.Macros do
   `finish` expressions. The generated macro uses `DSL.Source.escape_caller/1`.
   """
   defmacro defblock(head, opts) when is_list(opts) do
-    start_call = Keyword.fetch!(opts, :start)
-    finish_call = Keyword.fetch!(opts, :finish)
+    start_call = opts |> Keyword.fetch!(:start) |> expand_aliases(__CALLER__)
+    finish_call = opts |> Keyword.fetch!(:finish) |> expand_aliases(__CALLER__)
     source? = Keyword.get(opts, :source, false)
 
     {name, args} = decompose_head!(head)
@@ -87,6 +87,13 @@ defmodule DSL.Macros do
 
       node ->
         node
+    end)
+  end
+
+  defp expand_aliases(ast, env) do
+    Macro.prewalk(ast, fn
+      {:__aliases__, _meta, _parts} = alias_ast -> Macro.expand(alias_ast, env)
+      node -> node
     end)
   end
 

@@ -64,24 +64,26 @@ end
 defmodule DSLTest.MacroFixture do
   use DSL.Macros
 
-  defcall(put_mode(mode), to: DSLTest.MacroRuntime.put_mode(mode))
-  defcall(default_mode(mode \\ :default), to: DSLTest.MacroRuntime.put_mode(mode))
-  defcall(static_mode(), to: DSLTest.MacroRuntime.put_mode(:static))
+  alias DSLTest.MacroRuntime
+
+  defcall(put_mode(mode), to: MacroRuntime.put_mode(mode))
+  defcall(default_mode(mode \\ :default), to: MacroRuntime.put_mode(mode))
+  defcall(static_mode(), to: MacroRuntime.put_mode(:static))
 
   defblock(wrapper(name, opts \\ []),
-    start: DSLTest.MacroRuntime.start_wrapper(name, opts),
-    finish: DSLTest.MacroRuntime.finish_wrapper()
+    start: MacroRuntime.start_wrapper(name, opts),
+    finish: MacroRuntime.finish_wrapper()
   )
 
   defblock(wrapper0(),
-    start: DSLTest.MacroRuntime.start_wrapper(:zero, []),
-    finish: DSLTest.MacroRuntime.finish_wrapper()
+    start: MacroRuntime.start_wrapper(:zero, []),
+    finish: MacroRuntime.finish_wrapper()
   )
 
   defblock(sourced(name, opts \\ []),
     source: true,
-    start: DSLTest.MacroRuntime.start_sourced(name, opts, source),
-    finish: DSLTest.MacroRuntime.finish_sourced(source)
+    start: MacroRuntime.start_sourced(name, opts, source),
+    finish: MacroRuntime.finish_sourced(source)
   )
 end
 
