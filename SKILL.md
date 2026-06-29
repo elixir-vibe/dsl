@@ -38,13 +38,17 @@ Use this skill when adding or maintaining an Elixir library/application DSL that
    - Declare schemas with `options :name do ... end`.
    - Call generated `validate_name_opts!/2` before building domain structs.
 
-5. Use `DSL.Macros` for simple public wrappers.
+5. Use `DSL.Macros` for public wrappers.
    - Use `defdirective` for macros that expand to one runtime call.
    - Use `defblock` for start/block/finish macros.
-   - Keep hand-written macros for conditional syntax or domain-heavy expansion.
+   - Use `defaround` when the caller block belongs inside a larger template via `yield()`.
+   - Use `optional: true` on `defblock`/`defaround` for no-body forms.
+   - Use `quoted: [:arg]` or `quoted: [:block]` for code-as-data forms.
+   - Keep hand-written macros for module setup such as `__using__/1`.
 
 6. Preserve source locations for diagnostics.
-   - In a macro before `quote`, use `DSL.Source.escape_caller(__CALLER__)`.
+   - Prefer `source: true` or `source: MySourceModule` on `defdirective`/`defblock`.
+   - In a hand-written macro before `quote`, use `DSL.Source.escape_caller(__CALLER__)`.
    - Outside quoted code, use `DSL.Source.from_caller(__CALLER__)`.
    - Pass as `location: source` to `validate_*_opts!/2`.
 
@@ -103,6 +107,16 @@ defmodule MyApp.Config do
 
   defdirective component(name) do
     MyApp.Config.Scope.attach(:component, name)
+  end
+
+  defdirective exs(path, opts \\ []), quoted: [:block] do
+    MyApp.Config.Scope.add_exs(path, block, opts)
+  end
+
+  defaround release(name, opts \\ []), optional: true do
+    release = MyApp.Config.Scope.start_release(name, opts)
+    yield()
+    MyApp.Config.Scope.finish_release(release)
   end
 end
 ```

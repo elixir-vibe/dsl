@@ -43,6 +43,12 @@ defmodule DSLTest.Fixture do
   end
 end
 
+defmodule DSLTest.CustomSource do
+  defstruct [:file, :line]
+
+  def from_caller(caller), do: %__MODULE__{file: caller.file, line: caller.line}
+end
+
 defmodule DSLTest.MacroRuntime do
   def put_mode(mode), do: Process.put({__MODULE__, :mode}, mode)
   def mode, do: Process.get({__MODULE__, :mode})
@@ -59,6 +65,30 @@ defmodule DSLTest.MacroRuntime do
   def finish_sourced(source), do: Process.put({__MODULE__, :sourced_finish}, source)
   def sourced, do: Process.get({__MODULE__, :sourced})
   def sourced_finish, do: Process.get({__MODULE__, :sourced_finish})
+
+  def put_sourced_mode(mode, source) do
+    Process.put({__MODULE__, :sourced_mode}, {mode, source})
+  end
+
+  def sourced_mode, do: Process.get({__MODULE__, :sourced_mode})
+
+  def start_scoped_value(name) do
+    value = {:computed, name}
+    Process.put({__MODULE__, :scoped_value_start}, value)
+    value
+  end
+
+  def finish_scoped_value(value), do: Process.put({__MODULE__, :scoped_value_finish}, value)
+  def scoped_value_start, do: Process.get({__MODULE__, :scoped_value_start})
+  def scoped_value_finish, do: Process.get({__MODULE__, :scoped_value_finish})
+
+  def put_quoted_expression(expression),
+    do: Process.put({__MODULE__, :quoted_expression}, expression)
+
+  def quoted_expression, do: Process.get({__MODULE__, :quoted_expression})
+
+  def put_quoted_block(block), do: Process.put({__MODULE__, :quoted_block}, block)
+  def quoted_block, do: Process.get({__MODULE__, :quoted_block})
 end
 
 defmodule DSLTest.MacroFixture do
@@ -78,6 +108,22 @@ defmodule DSLTest.MacroFixture do
     MacroRuntime.put_mode(:static)
   end
 
+  defdirective sourced_mode(mode), source: DSLTest.CustomSource do
+    MacroRuntime.put_sourced_mode(mode, source)
+  end
+
+  defdirective guarded_mode(mode) when is_atom(mode) do
+    MacroRuntime.put_mode(mode)
+  end
+
+  defdirective quoted_expression(expression), quoted: [:expression] do
+    MacroRuntime.put_quoted_expression(expression)
+  end
+
+  defdirective quoted_block(), quoted: [:block] do
+    MacroRuntime.put_quoted_block(block)
+  end
+
   defblock wrapper(name, opts \\ []) do
     start(MacroRuntime.start_wrapper(name, opts))
     finish(MacroRuntime.finish_wrapper())
@@ -91,6 +137,24 @@ defmodule DSLTest.MacroFixture do
   defblock sourced(name, opts \\ []), source: true do
     start(MacroRuntime.start_sourced(name, opts, source))
     finish(MacroRuntime.finish_sourced(source))
+  end
+
+  defblock scoped_value(name), optional: true do
+    start do
+      value = MacroRuntime.start_scoped_value(name)
+      Process.put({MacroRuntime, :scoped_value_visible}, value)
+    end
+
+    finish do
+      value = Process.get({MacroRuntime, :scoped_value_visible})
+      MacroRuntime.finish_scoped_value(value)
+    end
+  end
+
+  defaround around_value(name), optional: true do
+    MacroRuntime.start_scoped_value(name)
+    yield()
+    MacroRuntime.finish_scoped_value(name)
   end
 end
 
@@ -171,6 +235,7 @@ defmodule DSLTest do
   use ExUnit.Case, async: true
 
   alias DSLTest.Component
+  alias DSLTest.CustomSource
   alias DSLTest.Fixture
   alias DSLTest.Page
   alias DSLTest.ParentFixture
@@ -216,6 +281,34 @@ defmodule DSLTest do
     assert DSLTest.MacroRuntime.wrapper_finish?()
   end
 
+  test "defdirective can preserve quoted argument AST" do
+    DSLTest.MacroFixture.quoted_expression(1 + 2)
+
+    assert {:+, _, [1, 2]} = DSLTest.MacroRuntime.quoted_expression()
+  end
+
+  test "defdirective can capture quoted block AST" do
+    DSLTest.MacroFixture.quoted_block do
+      1 + 2
+    end
+
+    assert {:+, _, [1, 2]} = DSLTest.MacroRuntime.quoted_block()
+  end
+
+  test "defdirective preserves guards in macro heads" do
+    DSLTest.MacroFixture.guarded_mode(:guarded)
+
+    assert DSLTest.MacroRuntime.mode() == :guarded
+  end
+
+  test "defdirective can pass custom caller source metadata" do
+    DSLTest.MacroFixture.sourced_mode(:prod)
+
+    assert {:prod, %CustomSource{file: file, line: line}} = DSLTest.MacroRuntime.sourced_mode()
+    assert file == __ENV__.file
+    assert is_integer(line)
+  end
+
   test "defblock can pass caller source metadata" do
     DSLTest.MacroFixture.sourced :docs do
       :ok
@@ -226,6 +319,39 @@ defmodule DSLTest do
     assert file == __ENV__.file
     assert is_integer(line)
     assert DSLTest.MacroRuntime.sourced_finish() == start_source
+  end
+
+  test "defaround inserts caller blocks at yield markers" do
+    DSLTest.MacroFixture.around_value :around do
+      DSLTest.MacroRuntime.put_mode(:inside_around)
+    end
+
+    assert DSLTest.MacroRuntime.scoped_value_start() == {:computed, :around}
+    assert DSLTest.MacroRuntime.mode() == :inside_around
+    assert DSLTest.MacroRuntime.scoped_value_finish() == :around
+  end
+
+  test "defaround supports optional no-body wrappers" do
+    DSLTest.MacroFixture.around_value(:around_no_body)
+
+    assert DSLTest.MacroRuntime.scoped_value_start() == {:computed, :around_no_body}
+    assert DSLTest.MacroRuntime.scoped_value_finish() == :around_no_body
+  end
+
+  test "defblock supports optional no-body wrappers" do
+    DSLTest.MacroFixture.scoped_value(:no_body)
+
+    assert DSLTest.MacroRuntime.scoped_value_start() == {:computed, :no_body}
+    assert DSLTest.MacroRuntime.scoped_value_finish() == {:computed, :no_body}
+  end
+
+  test "defblock supports multi-statement start and finish blocks" do
+    DSLTest.MacroFixture.scoped_value :docs do
+      :ok
+    end
+
+    assert DSLTest.MacroRuntime.scoped_value_start() == {:computed, :docs}
+    assert DSLTest.MacroRuntime.scoped_value_finish() == {:computed, :docs}
   end
 
   test "defdirective and defblock compose with scopes, options, attach, and source metadata" do

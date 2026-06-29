@@ -130,9 +130,36 @@ defmodule SiteDSL do
 end
 ```
 
-`defdirective/2` defines a macro that expands to one call. `defblock/3` defines the common start/block/finish shape. Use `source: true` when the start or finish expression needs caller source metadata.
+`defdirective/2` defines a macro that expands to one call. `defblock/3` defines the common start/block/finish shape. Use `source: true` when start or finish expressions need caller source metadata.
 
-Keep hand-written macros for conditional syntax, macro composition, or domain-heavy expansion.
+Use `defaround/3` when the caller block belongs inside a larger template:
+
+```elixir
+defaround release(name, opts \\ []), optional: true do
+  artifact = Release.assigns(name, opts)
+
+  service artifact.service_name do
+    yield()
+    daemon artifact.unit
+  end
+end
+```
+
+Use `quoted:` for code-as-data forms:
+
+```elixir
+defdirective exs(path, opts \\ []), quoted: [:block] do
+  Scope.add_resource(Exs.new(path, block, opts))
+end
+
+defdirective eval(expression, opts \\ []), quoted: [:expression] do
+  Command.eval(Macro.to_string(expression), opts)
+end
+```
+
+Wrapper heads may use guards. Use `optional: true` with `defblock` or `defaround` to also generate a no-body form.
+
+Keep hand-written macros for module setup such as `__using__/1`.
 
 ## Scopes
 

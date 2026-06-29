@@ -4,7 +4,7 @@ defmodule DSL.MixProject do
   def project do
     [
       app: :dsl,
-      version: "0.1.1",
+      version: "0.1.2",
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       description: description(),
