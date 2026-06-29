@@ -65,9 +65,16 @@ defmodule DSLTest.MacroFixture do
   use DSL.Macros
 
   defcall(put_mode(mode), to: DSLTest.MacroRuntime.put_mode(mode))
+  defcall(default_mode(mode \\ :default), to: DSLTest.MacroRuntime.put_mode(mode))
+  defcall(static_mode(), to: DSLTest.MacroRuntime.put_mode(:static))
 
   defblock(wrapper(name, opts \\ []),
     start: DSLTest.MacroRuntime.start_wrapper(name, opts),
+    finish: DSLTest.MacroRuntime.finish_wrapper()
+  )
+
+  defblock(wrapper0(),
+    start: DSLTest.MacroRuntime.start_wrapper(:zero, []),
     finish: DSLTest.MacroRuntime.finish_wrapper()
   )
 
@@ -90,6 +97,27 @@ defmodule DSLTest do
   test "defcall defines macro wrappers around runtime calls" do
     DSLTest.MacroFixture.put_mode(:prod)
     assert DSLTest.MacroRuntime.mode() == :prod
+  end
+
+  test "defcall supports default arguments and zero-arity wrappers" do
+    DSLTest.MacroFixture.default_mode()
+    assert DSLTest.MacroRuntime.mode() == :default
+
+    DSLTest.MacroFixture.default_mode(:custom)
+    assert DSLTest.MacroRuntime.mode() == :custom
+
+    DSLTest.MacroFixture.static_mode()
+    assert DSLTest.MacroRuntime.mode() == :static
+  end
+
+  test "defblock supports zero-arity block wrappers" do
+    DSLTest.MacroFixture.wrapper0 do
+      DSLTest.MacroRuntime.put_mode(:inside_zero)
+    end
+
+    assert DSLTest.MacroRuntime.wrapper() == {:start, :zero, []}
+    assert DSLTest.MacroRuntime.mode() == :inside_zero
+    assert DSLTest.MacroRuntime.wrapper_finish?()
   end
 
   test "defblock defines start block finish macro wrappers" do
