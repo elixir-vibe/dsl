@@ -4,17 +4,40 @@ defmodule DSL.Macros do
   @doc "Import public macro-definition helpers."
   defmacro __using__(_opts) do
     quote do
-      import DSL.Macros, only: [defblock: 2, defcall: 2]
+      import DSL.Macros, only: [defblock: 2, defblock: 3, defdirective: 2]
     end
   end
 
   @doc """
   Defines a macro that expands to a single call.
 
-      defcall providers(providers), to: MyScope.put_providers(providers)
+      defdirective providers(providers) do
+        MyScope.put_providers(providers)
+      end
   """
-  defmacro defcall(head, opts) when is_list(opts) do
-    call = opts |> Keyword.fetch!(:to) |> expand_aliases(__CALLER__)
+  defmacro defdirective(head, do: call) do
+    build_directive(head, call, __CALLER__)
+  end
+
+  @doc """
+  Defines a block macro with start and finish calls.
+
+      defblock project(name, opts \\ []) do
+        start MyScope.start_project(name, opts)
+        finish MyScope.finish_project()
+      end
+
+  Pass `source: true` to make a `source` variable available to `start` and
+  `finish` expressions. The generated macro uses `DSL.Source.escape_caller/1`.
+  """
+  defmacro defblock(head, opts \\ [], do: body) when is_list(opts) do
+    {start_call, finish_call} = block_calls!(body)
+
+    build_block(head, start_call, finish_call, Keyword.get(opts, :source, false), __CALLER__)
+  end
+
+  defp build_directive(head, call, env) do
+    call = expand_aliases(call, env)
     {name, args} = decompose_head!(head)
     bindings = binding_keyword(args)
 
@@ -25,20 +48,9 @@ defmodule DSL.Macros do
     end
   end
 
-  @doc """
-  Defines a block macro with start and finish calls.
-
-      defblock project(name, opts \\ []),
-        start: MyScope.start_project(name, opts),
-        finish: MyScope.finish_project()
-
-  Pass `source: true` to make a `source` variable available to `start` and
-  `finish` expressions. The generated macro uses `DSL.Source.escape_caller/1`.
-  """
-  defmacro defblock(head, opts) when is_list(opts) do
-    start_call = opts |> Keyword.fetch!(:start) |> expand_aliases(__CALLER__)
-    finish_call = opts |> Keyword.fetch!(:finish) |> expand_aliases(__CALLER__)
-    source? = Keyword.get(opts, :source, false)
+  defp build_block(head, start_call, finish_call, source?, env) do
+    start_call = expand_aliases(start_call, env)
+    finish_call = expand_aliases(finish_call, env)
 
     {name, args} = decompose_head!(head)
     bindings = binding_keyword(args)
@@ -87,6 +99,31 @@ defmodule DSL.Macros do
 
       node ->
         node
+    end)
+  end
+
+  defp block_calls!({:__block__, _meta, expressions}) do
+    block_calls!(expressions)
+  end
+
+  defp block_calls!(expressions) when is_list(expressions) do
+    start = block_call(expressions, :start)
+    finish = block_call(expressions, :finish)
+
+    case {start, finish} do
+      {nil, nil} -> raise ArgumentError, "defblock requires start and finish calls"
+      {nil, _finish} -> raise ArgumentError, "defblock requires a start call"
+      {_start, nil} -> raise ArgumentError, "defblock requires a finish call"
+      {start, finish} -> {start, finish}
+    end
+  end
+
+  defp block_calls!(expression), do: block_calls!(List.wrap(expression))
+
+  defp block_call(expressions, name) do
+    Enum.find_value(expressions, fn
+      {^name, _meta, [call]} -> call
+      _other -> nil
     end)
   end
 

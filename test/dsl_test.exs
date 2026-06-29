@@ -66,42 +66,126 @@ defmodule DSLTest.MacroFixture do
 
   alias DSLTest.MacroRuntime
 
-  defcall(put_mode(mode), to: MacroRuntime.put_mode(mode))
-  defcall(default_mode(mode \\ :default), to: MacroRuntime.put_mode(mode))
-  defcall(static_mode(), to: MacroRuntime.put_mode(:static))
+  defdirective put_mode(mode) do
+    MacroRuntime.put_mode(mode)
+  end
 
-  defblock(wrapper(name, opts \\ []),
-    start: MacroRuntime.start_wrapper(name, opts),
-    finish: MacroRuntime.finish_wrapper()
-  )
+  defdirective default_mode(mode \\ :default) do
+    MacroRuntime.put_mode(mode)
+  end
 
-  defblock(wrapper0(),
-    start: MacroRuntime.start_wrapper(:zero, []),
-    finish: MacroRuntime.finish_wrapper()
-  )
+  defdirective static_mode() do
+    MacroRuntime.put_mode(:static)
+  end
 
-  defblock(sourced(name, opts \\ []),
-    source: true,
-    start: MacroRuntime.start_sourced(name, opts, source),
-    finish: MacroRuntime.finish_sourced(source)
-  )
+  defblock wrapper(name, opts \\ []) do
+    start(MacroRuntime.start_wrapper(name, opts))
+    finish(MacroRuntime.finish_wrapper())
+  end
+
+  defblock wrapper0() do
+    start(MacroRuntime.start_wrapper(:zero, []))
+    finish(MacroRuntime.finish_wrapper())
+  end
+
+  defblock sourced(name, opts \\ []), source: true do
+    start(MacroRuntime.start_sourced(name, opts, source))
+    finish(MacroRuntime.finish_sourced(source))
+  end
+end
+
+defmodule DSLTest.Site do
+  defstruct [:name, :source, pages: []]
+
+  def add_page(site, page), do: %{site | pages: site.pages ++ [page]}
+end
+
+defmodule DSLTest.Page do
+  defstruct [:path, :title, :source, components: []]
+
+  def add_component(page, component), do: %{page | components: page.components ++ [component]}
+end
+
+defmodule DSLTest.Component do
+  defstruct [:name]
+end
+
+defmodule DSLTest.SiteScope do
+  use DSL
+
+  alias DSLTest.Component
+  alias DSLTest.Page
+  alias DSLTest.Site
+
+  options :page_opts, return: :keyword do
+    field(:title, :string, required: true)
+  end
+
+  scope :site do
+    accepts(:page)
+  end
+
+  scope :page do
+    requires(:site)
+    accepts(:component)
+  end
+
+  def start_site(name, source), do: push_site(%Site{name: name, source: source})
+  def finish_site, do: pop_site()
+
+  def start_page(path, opts, source) do
+    opts = validate_page_opts!(opts, location: source)
+    push_page(%Page{path: path, title: Keyword.fetch!(opts, :title), source: source})
+  end
+
+  def finish_page do
+    page = pop_page()
+    attach(:page, page)
+    page
+  end
+
+  def add_component(name), do: attach(:component, %Component{name: name})
+end
+
+defmodule DSLTest.SiteDSL do
+  use DSL.Macros
+
+  alias DSLTest.SiteScope
+
+  defblock site(name), source: true do
+    start(SiteScope.start_site(name, source))
+    finish(SiteScope.finish_site())
+  end
+
+  defblock page(path, opts \\ []), source: true do
+    start(SiteScope.start_page(path, opts, source))
+    finish(SiteScope.finish_page())
+  end
+
+  defdirective component(name) do
+    SiteScope.add_component(name)
+  end
 end
 
 defmodule DSLTest do
   use ExUnit.Case, async: true
 
+  alias DSLTest.Component
   alias DSLTest.Fixture
+  alias DSLTest.Page
   alias DSLTest.ParentFixture
+  alias DSLTest.Site
 
   require Fixture
   require DSLTest.MacroFixture
+  require DSLTest.SiteDSL
 
-  test "defcall defines macro wrappers around runtime calls" do
+  test "defdirective defines macro wrappers around runtime calls" do
     DSLTest.MacroFixture.put_mode(:prod)
     assert DSLTest.MacroRuntime.mode() == :prod
   end
 
-  test "defcall supports default arguments and zero-arity wrappers" do
+  test "defdirective supports default arguments and zero-arity wrappers" do
     DSLTest.MacroFixture.default_mode()
     assert DSLTest.MacroRuntime.mode() == :default
 
@@ -112,7 +196,7 @@ defmodule DSLTest do
     assert DSLTest.MacroRuntime.mode() == :static
   end
 
-  test "defblock supports zero-arity block wrappers" do
+  test "defblock supports zero-arity wrappers" do
     DSLTest.MacroFixture.wrapper0 do
       DSLTest.MacroRuntime.put_mode(:inside_zero)
     end
@@ -142,6 +226,40 @@ defmodule DSLTest do
     assert file == __ENV__.file
     assert is_integer(line)
     assert DSLTest.MacroRuntime.sourced_finish() == start_source
+  end
+
+  test "defdirective and defblock compose with scopes, options, attach, and source metadata" do
+    site =
+      DSLTest.SiteDSL.site :docs do
+        DSLTest.SiteDSL.page "/guide", title: "Guide" do
+          DSLTest.SiteDSL.component(:hero)
+          DSLTest.SiteDSL.component(:toc)
+        end
+      end
+
+    assert %Site{name: :docs, source: %DSL.Source{}, pages: [page]} = site
+
+    assert %Page{
+             path: "/guide",
+             title: "Guide",
+             source: %DSL.Source{},
+             components: [%Component{name: :hero}, %Component{name: :toc}]
+           } = page
+
+    assert site.source.file == __ENV__.file
+    assert page.source.file == __ENV__.file
+  end
+
+  test "integrated DSL reports option errors with source locations" do
+    assert_raise ArgumentError,
+                 ~r/invalid options for page_opts: title can't be blank at .*dsl_test.exs:/,
+                 fn ->
+                   DSLTest.SiteDSL.site :docs do
+                     DSLTest.SiteDSL.page "/missing-title" do
+                       :ok
+                     end
+                   end
+                 end
   end
 
   test "options generates Ecto-backed validators" do

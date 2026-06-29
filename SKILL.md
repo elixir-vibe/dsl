@@ -18,7 +18,7 @@ Use this skill when adding or maintaining an Elixir library/application DSL that
 - process-local settings
 - Ecto-backed option schemas
 - caller source locations for diagnostics
-- public macro wrappers for simple call/block expansions
+- public macro wrappers for simple directive/block expansions
 
 ## Design rules
 
@@ -39,7 +39,7 @@ Use this skill when adding or maintaining an Elixir library/application DSL that
    - Call generated `validate_name_opts!/2` before building domain structs.
 
 5. Use `DSL.Macros` for simple public wrappers.
-   - Use `defcall` for macros that expand to one runtime call.
+   - Use `defdirective` for macros that expand to one runtime call.
    - Use `defblock` for start/block/finish macros.
    - Keep hand-written macros for conditional syntax or domain-heavy expansion.
 
@@ -91,17 +91,19 @@ Public macros:
 defmodule MyApp.Config do
   use DSL.Macros
 
-  defblock site(name),
-    start: MyApp.Config.Scope.push_site(%{name: name, pages: []}),
-    finish: MyApp.Config.Scope.pop_site()
+  defblock site(name) do
+    start MyApp.Config.Scope.push_site(%{name: name, pages: []})
+    finish MyApp.Config.Scope.pop_site()
+  end
 
-  defblock page(path, opts \\ []),
-    source: true,
-    start: MyApp.Config.Scope.start_page(path, opts, source),
-    finish: MyApp.Config.Scope.attach_page(MyApp.Config.Scope.pop_page())
+  defblock page(path, opts \\ []), source: true do
+    start MyApp.Config.Scope.start_page(path, opts, source)
+    finish MyApp.Config.Scope.attach_page(MyApp.Config.Scope.pop_page())
+  end
 
-  defcall component(name),
-    to: MyApp.Config.Scope.attach(:component, name)
+  defdirective component(name) do
+    MyApp.Config.Scope.attach(:component, name)
+  end
 end
 ```
 

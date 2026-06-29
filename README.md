@@ -119,17 +119,18 @@ Use `DSL.Macros` when public DSL macros only wrap runtime calls:
 defmodule SiteDSL do
   use DSL.Macros
 
-  defcall component(name),
-    to: SiteDSL.Scope.attach(:component, name)
+  defdirective component(name) do
+    SiteDSL.Scope.attach(:component, name)
+  end
 
-  defblock page(path, opts \\ []),
-    source: true,
-    start: SiteDSL.Scope.start_page(path, opts, source),
-    finish: SiteDSL.Scope.attach_page(SiteDSL.Scope.pop_page())
+  defblock page(path, opts \\ []), source: true do
+    start SiteDSL.Scope.start_page(path, opts, source)
+    finish SiteDSL.Scope.attach_page(SiteDSL.Scope.pop_page())
+  end
 end
 ```
 
-`defcall/2` defines a macro that expands to one call. `defblock/2` defines the common start/block/finish shape. Use `source: true` when the start or finish expression needs caller source metadata.
+`defdirective/2` defines a macro that expands to one call. `defblock/3` defines the common start/block/finish shape. Use `source: true` when the start or finish expression needs caller source metadata.
 
 Keep hand-written macros for conditional syntax, macro composition, or domain-heavy expansion.
 
