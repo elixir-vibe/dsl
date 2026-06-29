@@ -43,6 +43,41 @@ defmodule DSLTest.Fixture do
   end
 end
 
+defmodule DSLTest.MacroRuntime do
+  def put_mode(mode), do: Process.put({__MODULE__, :mode}, mode)
+  def mode, do: Process.get({__MODULE__, :mode})
+
+  def start_wrapper(name, opts), do: Process.put({__MODULE__, :wrapper}, {:start, name, opts})
+  def finish_wrapper, do: Process.put({__MODULE__, :wrapper_finish}, true)
+  def wrapper, do: Process.get({__MODULE__, :wrapper})
+  def wrapper_finish?, do: Process.get({__MODULE__, :wrapper_finish}, false)
+
+  def start_sourced(name, opts, source) do
+    Process.put({__MODULE__, :sourced}, {:start, name, opts, source})
+  end
+
+  def finish_sourced(source), do: Process.put({__MODULE__, :sourced_finish}, source)
+  def sourced, do: Process.get({__MODULE__, :sourced})
+  def sourced_finish, do: Process.get({__MODULE__, :sourced_finish})
+end
+
+defmodule DSLTest.MacroFixture do
+  use DSL.Macros
+
+  defcall(put_mode(mode), to: DSLTest.MacroRuntime.put_mode(mode))
+
+  defblock(wrapper(name, opts \\ []),
+    start: DSLTest.MacroRuntime.start_wrapper(name, opts),
+    finish: DSLTest.MacroRuntime.finish_wrapper()
+  )
+
+  defblock(sourced(name, opts \\ []),
+    source: true,
+    start: DSLTest.MacroRuntime.start_sourced(name, opts, source),
+    finish: DSLTest.MacroRuntime.finish_sourced(source)
+  )
+end
+
 defmodule DSLTest do
   use ExUnit.Case, async: true
 
@@ -50,6 +85,34 @@ defmodule DSLTest do
   alias DSLTest.ParentFixture
 
   require Fixture
+  require DSLTest.MacroFixture
+
+  test "defcall defines macro wrappers around runtime calls" do
+    DSLTest.MacroFixture.put_mode(:prod)
+    assert DSLTest.MacroRuntime.mode() == :prod
+  end
+
+  test "defblock defines start block finish macro wrappers" do
+    DSLTest.MacroFixture.wrapper :docs, owner: :root do
+      DSLTest.MacroRuntime.put_mode(:inside)
+    end
+
+    assert DSLTest.MacroRuntime.wrapper() == {:start, :docs, [owner: :root]}
+    assert DSLTest.MacroRuntime.mode() == :inside
+    assert DSLTest.MacroRuntime.wrapper_finish?()
+  end
+
+  test "defblock can pass caller source metadata" do
+    DSLTest.MacroFixture.sourced :docs do
+      :ok
+    end
+
+    assert {:start, :docs, [], start_source} = DSLTest.MacroRuntime.sourced()
+    assert %DSL.Source{file: file, line: line} = start_source
+    assert file == __ENV__.file
+    assert is_integer(line)
+    assert DSLTest.MacroRuntime.sourced_finish() == start_source
+  end
 
   test "options generates Ecto-backed validators" do
     assert Fixture.validate_proxy_opts!(provider: :gatehouse) == %{

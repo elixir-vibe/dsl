@@ -18,6 +18,7 @@ Use this skill when adding or maintaining an Elixir library/application DSL that
 - process-local settings
 - Ecto-backed option schemas
 - caller source locations for diagnostics
+- public macro wrappers for simple call/block expansions
 
 ## Design rules
 
@@ -37,12 +38,17 @@ Use this skill when adding or maintaining an Elixir library/application DSL that
    - Declare schemas with `options :name do ... end`.
    - Call generated `validate_name_opts!/2` before building domain structs.
 
-5. Preserve source locations for diagnostics.
+5. Use `DSL.Macros` for simple public wrappers.
+   - Use `defcall` for macros that expand to one runtime call.
+   - Use `defblock` for start/block/finish macros.
+   - Keep hand-written macros for conditional syntax or domain-heavy expansion.
+
+6. Preserve source locations for diagnostics.
    - In a macro before `quote`, use `DSL.Source.escape_caller(__CALLER__)`.
    - Outside quoted code, use `DSL.Source.from_caller(__CALLER__)`.
    - Pass as `location: source` to `validate_*_opts!/2`.
 
-6. Prefer attachments over manual parent lookup.
+7. Prefer attachments over manual parent lookup.
    - Let `accepts` describe which children a scope can receive.
    - Use `attach(child_name, child)` or generated `attach_*` helpers.
 
@@ -83,29 +89,19 @@ Public macros:
 
 ```elixir
 defmodule MyApp.Config do
-  defmacro site(name, do: block) do
-    quote do
-      MyApp.Config.Scope.push_site(%{name: unquote(name), pages: []})
-      unquote(block)
-      MyApp.Config.Scope.pop_site()
-    end
-  end
+  use DSL.Macros
 
-  defmacro page(path, opts \\ [], do: block) do
-    source = DSL.Source.escape_caller(__CALLER__)
+  defblock site(name),
+    start: MyApp.Config.Scope.push_site(%{name: name, pages: []}),
+    finish: MyApp.Config.Scope.pop_site()
 
-    quote do
-      MyApp.Config.Scope.start_page(unquote(path), unquote(opts), unquote(source))
-      unquote(block)
-      MyApp.Config.Scope.attach_page(MyApp.Config.Scope.pop_page())
-    end
-  end
+  defblock page(path, opts \\ []),
+    source: true,
+    start: MyApp.Config.Scope.start_page(path, opts, source),
+    finish: MyApp.Config.Scope.attach_page(MyApp.Config.Scope.pop_page())
 
-  defmacro component(name) do
-    quote do
-      MyApp.Config.Scope.attach(:component, unquote(name))
-    end
-  end
+  defcall component(name),
+    to: MyApp.Config.Scope.attach(:component, name)
 end
 ```
 

@@ -2,7 +2,7 @@
 
 Composable building blocks for Elixir-native DSLs.
 
-DSL is a small library for building project-specific Elixir DSLs without forcing a framework shape. It gives you primitives for nested scopes, source-aware diagnostics, parent/child attachments, process-local settings, and Ecto-backed option validation.
+DSL is a small library for building project-specific Elixir DSLs without forcing a framework shape. It gives you primitives for nested scopes, source-aware diagnostics, parent/child attachments, process-local settings, Ecto-backed option validation, and public macro wrapper generation.
 
 ## Installation
 
@@ -110,6 +110,28 @@ defmodule SiteDSL do
   end
 end
 ```
+
+## Public macro wrappers
+
+Use `DSL.Macros` when public DSL macros only wrap runtime calls:
+
+```elixir
+defmodule SiteDSL do
+  use DSL.Macros
+
+  defcall component(name),
+    to: SiteDSL.Scope.attach(:component, name)
+
+  defblock page(path, opts \\ []),
+    source: true,
+    start: SiteDSL.Scope.start_page(path, opts, source),
+    finish: SiteDSL.Scope.attach_page(SiteDSL.Scope.pop_page())
+end
+```
+
+`defcall/2` defines a macro that expands to one call. `defblock/2` defines the common start/block/finish shape. Use `source: true` when the start or finish expression needs caller source metadata.
+
+Keep hand-written macros for conditional syntax, macro composition, or domain-heavy expansion.
 
 ## Scopes
 
