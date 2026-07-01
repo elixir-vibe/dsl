@@ -40,6 +40,23 @@ and you want reusable plumbing for:
 
 DSL does not define your public syntax. Your project owns the user-facing macros and domain structs; DSL only provides the reusable substrate.
 
+## Compared with Spark
+
+[Spark](https://github.com/ash-project/spark) is a full DSL framework: you define sections/entities and get extension points, compile-time processing, introspection, docs, and editor tooling.
+
+DSL is smaller and lower-level. It exists for projects that want to own the surface language themselves and only share the repetitive mechanics underneath.
+
+| | DSL | Spark |
+| --- | --- | --- |
+| Style | Host-shaped, hand-owned macros | Section/entity DSL framework |
+| Surface syntax | Free-form, domain-specific Elixir | Regular declarative structure |
+| State | Process-local while evaluating blocks/config | Compile-time module DSL state |
+| Extensibility | Designed by the host project | Built-in extension system |
+| Tooling | Minimal | Docs, introspection, autocomplete, transformers/verifiers |
+| Use when | You want custom syntax with lightweight plumbing | You want a full DSL framework |
+
+DSL is the style used by HostKit's deployment DSL and Astral's site config DSL. In short: Spark helps you define a DSL framework; DSL helps you implement a DSL shape you already own.
+
 ## Example
 
 Define your DSL internals:
